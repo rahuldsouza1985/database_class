@@ -80,5 +80,10 @@ session_start();
 				$this->sql("DELETE FROM $table WHERE $condition", $parameters);
 			}
 		}
+	    
+		public function single_inflate(&$dataset, $table_name, $id, $columns) {
+			$row = $this->sql("SELECT ".implode(",", $columns)." FROM $table_name WHERE id=:id", array(':id' => $id));
+			$dataset = array_merge($dataset,$row);
+		}	    
 	}
 ?>
