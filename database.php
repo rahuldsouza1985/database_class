@@ -16,7 +16,43 @@ session_start();
 		
 		private function sql($query, $parameters, $additional_parameters = false) {
 			$stmt = $this->dbh->prepare($query);
-			$stmt->execute($parameters);
+			if(count($parameters) > 0) {
+				foreach($parameters as $placeholder => $value) {
+					switch($value['type'])
+					{
+						case 'PDO::PARAM_BOOL':
+							$value['value'] = filter_var($value['value'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+						break;
+						case 'PDO::PARAM_INT':
+						case 'PDO::PARAM_LONG':
+							$value['value'] = filter_var($value['value'], FILTER_VALIDATE_INT, FILTER_NULL_ON_FAILURE);
+						break;
+						case 'PDO::PARAM_FLOAT':
+						case 'PDO::PARAM_DOUBLE':
+							$value['value'] = filter_var($value['value'], FILTER_VALIDATE_FLOAT, FILTER_NULL_ON_FAILURE);
+						break;
+						case 'PDO::PARAM_STR':
+							$value['value'] = htmlentities($value['value']);
+						break;
+						case 'PDO::PARAM_TIMESTAMP':
+							if(!preg_match('[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[1-2][0-9]|3[0-1]) (2[0-3]|[01][0-9]):[0-5][0-9]:[0-5][0-9]', $value['value'])) {
+								$value['value'] = NULL;
+							}
+						break;
+						default:
+							$value['value'] = NULL;
+						break;
+					}
+					if($value['value'] === NULL)
+					{
+						$value['value'] = '';
+					}
+					$stmt->bindValue($placeholder, $value['value'], $value['type']);
+				}
+				$stmt->execute();
+			} else {
+				$stmt->execute($parameters);
+			}
 			if(isset($additional_parameters) and !empty($additional_parameters)) {
 				if($additional_parameters === 'insert') {
 					return $this->dbh->lastInsertId();
@@ -38,10 +74,10 @@ session_start();
 			$query_parameters = array();
 			extract($tables_joins);
 			foreach($tables as $table) {
-				$columns[$table]=$this->sql("SHOW COLUMNS FROM $table", array());
+				$columns = $this->sql("SHOW COLUMNS FROM $table", array());
 				$column_names=array();
-				foreach($columns[$table] as $c) {
-					$column_names["$table.$c"]="$table.$c";
+				foreach($columns as $c) {
+					$column_names["$table.{$c['Field']}"]="$table.{$c['Field']} AS '$table.{$c['Field']}'";
 				}
 				$query_parameters[$table]=implode(',', $column_names);
 			}
@@ -66,24 +102,28 @@ session_start();
 				$sql.= " LIMIT $start, $end ";
 			}
 			
-			return $this->sql($sql, $parameters);
+			return $this->sql($sql, $parameters, true);
 		}
 		
 		public function update_delete($parameters, $table, $condition, $mode=NULL) {
 			if($mode !== NULL) {
 				$new_data=array();
 				foreach($parameters as $column => $data) {
-					$new_data[]="$column=$data";
+					$new_data[]=str_replace(':', '', $column)."=$data";
 				}
 				$this->sql("UPDATE $table SET ".implode(',', $new_data)." WHERE $condition", $parameters);
 			} else {
 				$this->sql("DELETE FROM $table WHERE $condition", $parameters);
 			}
 		}
-	    
+		
 		public function single_inflate(&$dataset, $table_name, $id, $columns) {
 			$row = $this->sql("SELECT ".implode(",", $columns)." FROM $table_name WHERE id=:id", array(':id' => $id));
 			$dataset = array_merge($dataset,$row);
-		}	    
+		}
+		
+		public function __destruct() {
+			$this->dbh = NULL;
+		}
 	}
 ?>
